@@ -30,8 +30,8 @@ class VideoOperationBar(QtWidgets.QToolBar):
         self.recording_windows = {}  # 记录正在录像的窗口
         
         # 创建录像和抓图的存储目录
-        self.record_dir = r"D:\Test\Videos"  # 根据开发文档指定的路径
-        self.capture_dir = r"D:\Test\Images"  # 根据开发文档指定的路径
+        self.record_dir = r".\Test\Videos"  # 根据开发文档指定的路径
+        self.capture_dir = r".\Test\Images"  # 根据开发文档指定的路径
         self._ensure_directories()
         
         action = functools.partial(newAction, self)
@@ -93,75 +93,80 @@ class VideoOperationBar(QtWidgets.QToolBar):
         """确保录像和抓图目录存在"""
         os.makedirs(self.record_dir, exist_ok=True)
         os.makedirs(self.capture_dir, exist_ok=True)
-        
+
     def startVideo(self):
-        """处理播放按钮点击事件"""
-        # 检查是否有选中的窗口
-        if self.video_view.current_selected_index == -1:
+        """处理播放按钮点击事件 (UI层)"""
+        # 1. 检查选中状态
+        index = self.video_view.current_selected_index
+        if index == -1:
             print("请先选择一个视频窗口")
             self._log_event(False, "播放视频", "无", "未选择视频窗口")
             return
-            
-        # 获取选中的窗口索引
-        window_index = self.video_view.current_selected_index
-        
-        # 获取选中的窗口
-        selected_window = self.video_view.video_widgets[window_index]
-        
-        # 检查窗口是否有关联的通道数据
+
+        # 2. 获取数据用于日志记录
+        selected_window = self.video_view.video_widgets[index]
         channel_data = selected_window.property('channel_data')
+
         if not channel_data:
             print("请先选择一个设备通道")
             self._log_event(False, "播放视频", "无", "未选择设备通道")
             return
-            
+
         device_info = f"{channel_data['device_name']} - 通道{channel_data['channel_num']}"
-        print(f"开始播放视频 - 窗口索引: {window_index}, 设备: {channel_data['device_name']}, 通道: {channel_data['channel_num']}")
-        
-        # 如果该窗口已有线程，先停止它
-        if window_index in self.video_threads and self.video_threads[window_index].isRunning():
-            print(f"停止窗口 {window_index} 的现有线程")
-            self.video_threads[window_index].terminate()
-            self.video_threads[window_index].wait()
-            del self.video_threads[window_index]
-        
-        # 创建视频线程并开始播放
+
+        # 3. 调用核心启动函数
+        success, message = self.start_video_by_index(index)
+
+        # 4. 记录日志
+        if success:
+            print(f"播放成功: {device_info}")
+            self._log_event(True, "播放视频", device_info, "无")
+        else:
+            print(f"播放失败: {message}")
+            self._log_event(False, "播放视频", device_info, message)
+
+    def start_video_by_index(self, index, target_label=None):
+        """
+        底层核心：根据窗口索引启动视频流
+        :param index: 窗口索引
+        :param target_label: 渲染目标。如果为None，默认使用网格里的VideoWidget
+        """
         try:
-            # 检查是否已经有用户ID
+            # 1. 获取对应的窗口对象
+            selected_window = self.video_view.video_widgets[index]
+            channel_data = selected_window.property('channel_data')
+
+            if not channel_data:
+                return False, "该窗口未关联通道数据"
+
+            # 2. 如果该窗口已有线程，安全停止
+            self.stop_thread_by_index(index)
+
+            # 3. 处理登录逻辑
             user_id = selected_window.property('user_id')
-            
-            # 如果没有用户ID，先登录设备
             if user_id is None or user_id == -1:
                 user_id, _ = self.device_controller.login_device(
-                    channel_data['ip'],
-                    channel_data['port'],
-                    channel_data['username'],
-                    channel_data['password']
+                    channel_data['ip'], channel_data['port'],
+                    channel_data['username'], channel_data['password']
                 )
-                
                 if user_id == -1:
-                    print("设备登录失败")
-                    self._log_event(False, "播放视频", device_info, "设备登录失败")
-                    return
-                    
-                # 存储用户ID到窗口组件
+                    return False, "设备登录失败"
                 selected_window.setProperty('user_id', user_id)
-                print(f"设备登录成功，用户ID: {user_id}")
-            else:
-                print(f"使用现有用户ID: {user_id}")
-            
-            # 创建视频线程
-            t = VideoThread(self.device_controller, selected_window)
-            # 保存线程到字典
-            self.video_threads[window_index] = t
-            
-            print(f"视频线程创建成功，窗口索引: {window_index}")
-            self._log_event(True, "播放视频", device_info, "无")
+
+            # 4. 创建并启动线程
+            # 如果提供了 target_label (比如大窗口的Label)，就渲染到那；否则渲染到原窗口
+            render_target = target_label if target_label else selected_window
+
+            t = VideoThread(self.device_controller, render_target)
+            self.video_threads[index] = t
+            # 如果 VideoThread 内部没写 self.start()，记得在这里补上 t.start()
+
+            return True, "成功"
+
         except Exception as e:
-            print(f"视频播放失败: {str(e)}")
-            self._log_event(False, "播放视频", device_info, str(e))
             import traceback
             traceback.print_exc()
+            return False, str(e)
 
     def record(self):
         """处理录像按钮点击事件"""
@@ -509,7 +514,54 @@ class VideoOperationBar(QtWidgets.QToolBar):
             self._log_event(False, "停止所有线程", "无", str(e))
             import traceback
             traceback.print_exc()
-            
+
+    def stop_thread_by_index(self, index):
+        """
+        停止指定窗口索引的视频流
+        严格遵循 SDK 停止顺序：1. 录像 -> 2. 预览 -> 3. 线程
+        """
+        try:
+            if index not in self.video_threads:
+                print(f"窗口 {index} 当前没有运行中的线程")
+                return
+
+            thread = self.video_threads[index]
+
+            # --- 步骤 1: 必须先停止录像 ---
+            if index in self.recording_windows:
+                # 尝试从 thread 对象中获取预览句柄，或者从 widget property 中获取
+                preview_handle = getattr(thread, 'preview_handle', -1)
+                if preview_handle == -1:
+                    # 备选方案：从窗口属性拿
+                    preview_handle = self.video_view.video_widgets[index].property('preview_handle')
+
+                if preview_handle is not None and preview_handle != -1:
+                    print(f"窗口 {index} 正在录像，正在优先停止录像 (句柄: {preview_handle})...")
+                    # 必须在 stop_real_play 之前执行
+                    self.device_controller.stop_record(preview_handle)
+
+                self.recording_windows.clear()
+            if thread.isRunning():
+                # 停止并等待
+                thread.terminate()
+                thread.wait()
+
+            # 彻底清理引用
+            del self.video_threads[index]
+
+            # --- 步骤 4: 强制刷新 UI 画面，擦除残余图像 ---
+            source_widget = self.video_view.video_widgets[index]
+            if hasattr(source_widget, 'widget'):
+                source_widget.widget.clear()  # 清除文本
+                source_widget.widget.setStyleSheet("background-color: black;")  # 设为黑色
+                source_widget.widget.repaint()  # 强制立即重绘屏幕
+
+            print(f"窗口 {index} 资源已完全按照正确次序释放")
+
+        except Exception as e:
+            print(f"停止窗口 {index} 异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
     def _log_event(self, success, operation, device_info, error_info):
         """记录事件到日志"""
         # 获取主窗口

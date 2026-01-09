@@ -3,8 +3,9 @@ from asyncio import sleep
 from PyQt5.QtGui import QMouseEvent
 from PyQt5 import QtWidgets,QtCore
 
+from demo.VideoPreview.VideoThread import VideoThread
 from demo.VideoPreview.videoWidget import VideoWidget
-
+from demo.VideoPreview.PopUpVideoViewer import PopUpVideoViewer
 
 class VideoView(QtWidgets.QWidget):
     """
@@ -46,7 +47,8 @@ class VideoView(QtWidgets.QWidget):
             widget = VideoWidget(self)
             widget.index = i
             widget.setMinimumSize(160, 120)
-
+            # 双击信号
+            widget.enlargeWindow.connect(self.on_window_doubleClicked)
             # 连接点击信号
             widget.selectionChanged.connect(self.on_window_selected)
 
@@ -59,7 +61,7 @@ class VideoView(QtWidgets.QWidget):
     def on_window_selected(self, index):
         """处理窗口选中事件"""
         print(f"窗口选择: {index}")
-        
+
         # 清除之前的选择
         if self.current_selected_index != -1 and self.current_selected_index < len(self.video_widgets):
             prev_widget = self.video_widgets[self.current_selected_index]
@@ -73,6 +75,58 @@ class VideoView(QtWidgets.QWidget):
 
         # 发射信号
         self.windowSelected.emit(index)
+    def on_window_doubleClicked(self, index):
+        if index < 0 or index >= len(self.video_widgets):
+            return
+
+        source_widget = self.video_widgets[index]
+        user_id = source_widget.property('user_id')
+        channel_data = source_widget.property('channel_data')
+
+        if not channel_data:
+            return
+
+        main_win = self.window()
+        op_bar = getattr(main_win, 'VideooperationBar', None)
+        if not op_bar:
+            return
+
+        op_bar.stop_thread_by_index(index)
+
+        source_widget.setVisible(False)
+
+        popup = PopUpVideoViewer(
+            index=index,
+            channel_data=channel_data,
+            device_controller=op_bar.device_controller
+        )
+        popup.big_video_widget.setProperty('user_id', user_id)
+        popup.big_video_widget.setProperty('channel_data', channel_data)
+        popup.show()
+
+        op_bar.start_video_by_index(
+            index=index,
+            target_label=popup.big_video_widget
+        )
+
+        popup.windowClosed.connect(
+            lambda: self.restore_video_widget(index)
+        )
+
+        self._popup = popup
+
+    def restore_video_widget(self, index):
+        main_win = self.window()
+        op_bar = getattr(main_win, 'VideooperationBar', None)
+
+        if op_bar:
+            op_bar.stop_thread_by_index(index)
+
+        source_widget = self.video_widgets[index]
+        source_widget.setVisible(True)
+
+        if op_bar and source_widget.property('channel_data'):
+            op_bar.start_video_by_index(index)
 
     def _start_preview(self, window_index, channel_data):
         """在指定窗口启动预览"""

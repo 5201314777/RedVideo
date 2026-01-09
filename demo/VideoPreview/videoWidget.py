@@ -27,8 +27,11 @@ class VideoWidget(QtWidgets.QWidget):
         
         self.setLayout(self.layout)
         
-    def mouseDoubleClickEvent(self, a0, QMouseEvent=None):
-        pass
+    def mouseDoubleClickEvent(self,QMouseEvent=None):
+        # 发射双击信号，传递当前窗口的索引
+        if QMouseEvent.button() == Qt.LeftButton:
+            self.enlargeWindow.emit(self.index)
+        print("double click")
         
     def select(self):
         self.selected = True

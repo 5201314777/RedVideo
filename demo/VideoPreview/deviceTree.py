@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import QTreeWidget, QTreeWidgetItem, QMenu, QAction, QMessa
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5 import QtCore
 from demo.HikSDK.HCNetSDK import NET_DVR_CHANNEL_CFG, NET_DVR_GET_CHANNEL_CFG,NET_DVR_IPDEVINFO_V31,NET_DVR_IPPARACFG_V40
+from demo.VideoPreview.ConfigManager import ConfigManager
 from demo.VideoPreview.DeviceDialog import DeviceDialog
 
 
@@ -17,19 +18,20 @@ class DeviceTree(QTreeWidget):
         super(DeviceTree, self).__init__(parent)
         self.controller = controller  # 保存控制器实例
         self.setHeaderLabels(['设备列表'])
-        self.setContextMenuPolicy(Qt.CustomContextMenu) #右击事件
+        self.setContextMenuPolicy(Qt.CustomContextMenu)  # 右击事件
         self.customContextMenuRequested.connect(self.on_context_menu)
         self.itemDoubleClicked.connect(self.on_item_double_clicked)
-        self.rootDevices=[]
-        self.devicesInfo=[]
+        self.rootDevices = []
+        self.devicesInfo = []
+        self.deviceNum = 0  # 接入设备数
+        self.config_manager = ConfigManager()
+        self.load_saved_devices()
         self.expandAll()  # 展开所有节点
-        self.deviceNum=0 #接入设备数
         self.itemClicked.connect(self.on_item_clicked)  # 确保连接点击信号
 
-    def add_device(self, device_name, parent=None,device_info=None):
-        #TODO 检查账号是否能正常注册，自动添加多通道
+    def add_device(self, device_name, parent=None, device_info=None, save_to_file=True):
+        # UI部分：创建根节点
         if parent is None:
-            # 创建一个根节点（第一列内容）
             root_item = QTreeWidgetItem([f'{device_name}'])
             self.addTopLevelItem(root_item)
             self.rootDevices.append(root_item)
@@ -37,24 +39,44 @@ class DeviceTree(QTreeWidget):
             self.deviceNum += 1
             self.expandItem(root_item)
 
-        #TODO 此处添加检测通道数逻辑，根据通道数添加子项
+        # 获取通道数
         channelNum = self.get_channel_count(device_info) if device_info else 4
 
-        # channelNum = 4
-        # 根据实际通道数添加子项
+        # UI部分：添加通道子节点
         for i in range(channelNum):
             channel_item = QTreeWidgetItem([f'{device_name}-通道 {i + 1}'])
             parent.addChild(channel_item)
 
-        # 存储设备信息到数组
+        # 数据处理与持久化
         if device_info:
-            device_info['channelNum'] = channelNum  # 加上通道信息
-            self.devicesInfo.append(device_info)
-            print(f"设备添加成功: {device_info}")
-            
-            # 记录日志
-            self._log_event(True, "添加设备", f"{device_info['name']} ({device_info['address']}:{device_info['port']})", f"通道数: {channelNum}")
+            device_info['channelNum'] = channelNum  # 更新通道信息
 
+            # 1. 更新内存中的列表 (避免重复添加)
+            # 检查列表中是否已存在该设备（通过名字判断）
+            exists = False
+            for index, d in enumerate(self.devicesInfo):
+                if d.get('name') == device_info['name']:
+                    self.devicesInfo[index] = device_info  # 如果存在则更新
+                    exists = True
+                    break
+
+            if not exists:
+                self.devicesInfo.append(device_info)  # 不存在则追加
+
+            print(f"设备处理完成: {device_info['name']}")
+
+            # 2. 仅在手动添加时记录日志（加载时通常不需要重复记录添加日志）
+            if save_to_file:
+                self._log_event(True, "添加设备",
+                                f"{device_info['name']} ({device_info['address']}:{device_info['port']})",
+                                f"通道数: {channelNum}")
+
+            # 3. 关键修复：保存到文件
+            if save_to_file:
+                if self.config_manager.save_devices(self.devicesInfo):
+                    print("配置已保存到文件")
+                else:
+                    print("配置保存失败")
     def get_channel_count(self, device_info):
         DEFAULT_CHANNELS = 1
         print("\n====== 开始获取通道信息 ======")
@@ -223,18 +245,42 @@ class DeviceTree(QTreeWidget):
         if item.parent() is not None:
             print(item.text(0))
 
-    #TODO 将设备信息持久化保存
+    #TODO 将设备信息持久化保存# DeviceTree.py
     def on_add_device(self):
         # 创建并显示添加设备的对话框
         dialog = DeviceDialog(self)
+
+        # 因为Dialog内部已经限制了必须填写完整才能点击Accept，
+        # 所以这里不需要再弹窗提示"信息不全"
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            # 用户点击了"添加"按钮，从对话框中获取设备信息
+
             device_info = dialog.get_device_info()
-            if device_info:
-                # 提取设备名称和其他信息
-                device_name = device_info['name']
-                # 添加新设备到设备树（默认添加到根节点）
-                self.add_device(device_name,device_info=device_info)
+            if not device_info: return
+
+            device_name = device_info['name']
+            device_str = f"{device_info['address']}:{device_info['port']}"
+
+            # --- 开始合法性验证 ---
+            if self.controller:
+                # 调用控制器测试连接
+                is_valid, msg = self.controller.device_connection_test(
+                    device_info['address'],
+                    device_info['port'],
+                    device_info['username'],
+                    device_info['password']
+                )
+
+                if is_valid:
+                    # 验证成功，执行添加逻辑
+                    # add_device 内部会自动记录"添加成功"的日志
+                    self.add_device(device_name, device_info=device_info)
+                else:
+                    # 验证失败：不弹窗，直接写日志
+                    print(f"设备验证失败: {msg}")
+                    self._log_event(False, "添加设备", f"{device_name} ({device_str})", f"验证失败: {msg}")
+            else:
+                # 控制器未初始化
+                self._log_event(False, "添加设备", device_name, "系统错误: 控制器未初始化")
 
     def on_delete_device(self, item):
         # 确认删除
@@ -253,7 +299,8 @@ class DeviceTree(QTreeWidget):
                 device_info = next((d for d in self.devicesInfo if d['name'] == device_name), None)
                 if device_info:
                     self.devicesInfo.remove(device_info)
-                
+                    self.config_manager.save_devices(self.devicesInfo)
+                    self._log_event(True, "删除设备", device_name, "配置已更新")
                 # 记录日志
                 self._log_event(True, "删除设备", device_name, "无")
             else:
@@ -281,3 +328,10 @@ class DeviceTree(QTreeWidget):
         if hasattr(main_window, 'logger'):
             main_window.logger.add_log(success, operation, device_info, error_info)
 
+    def load_saved_devices(self):
+        """从本地文件加载设备并显示在树中"""
+        saved_devices = self.config_manager.load_devices()
+        for dev_info in saved_devices:
+            # 这里调用 add_device 时设置 save_to_file=False，防止循环保存
+            # 注意：我们需要稍微修改 add_device 方法来支持这个参数
+            self.add_device(dev_info['name'], device_info=dev_info, save_to_file=False)

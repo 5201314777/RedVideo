@@ -15,6 +15,42 @@ class DeviceController:
         print("SDK初始化成功")
         self.PlayCtrl_Port = c_long(-1)
 
+
+    def device_connection_test(self, ip, port, username, password):
+        """
+        测试设备连接（仅验证，不保持登录）
+        :return: (bool, str) -> (是否成功, 详细信息)
+        """
+        print(f"正在测试验证设备: {ip}:{port}")
+
+        struLoginInfo = NET_DVR_USER_LOGIN_INFO()
+        struLoginInfo.bUseAsynLogin = 0
+        struLoginInfo.sDeviceAddress = bytes(ip, "ascii")
+        struLoginInfo.wPort = port
+        struLoginInfo.sUserName = bytes(username, "ascii")
+        struLoginInfo.sPassword = bytes(password, "ascii")
+        struLoginInfo.byLoginMode = 0
+
+        struDeviceInfoV40 = NET_DVR_DEVICEINFO_V40()
+
+        # 尝试登录
+        UserID = self.Objdll.NET_DVR_Login_V40(byref(struLoginInfo), byref(struDeviceInfoV40))
+
+        if UserID == -1:
+            error_code = self.Objdll.NET_DVR_GetLastError()
+            # 获取友好的错误信息
+            error_msg = HikErrorHandler.format_error_info(
+                error_code,
+                "设备验证",
+                f"IP: {ip}"
+            )
+            return False, error_msg
+        else:
+            # 验证成功后立即注销
+            self.Objdll.NET_DVR_Logout(UserID)
+            return True, "设备验证通过"
+
+
     def login_device(self, ip, port, username, password):
         """登录设备"""
         print(f"正在登录设备: {ip}:{port}, 用户名: {username}")

@@ -5,6 +5,7 @@ from demo.HikSDK.HCNetSDK import *
 from PyQt5.QtCore import pyqtSignal
 from demo.HikSDK.PlayCtrl import *
 from demo.VideoPreview.ErrorHandler import HikErrorHandler
+from demo.VideoPreview.person_detector import PersonDetector
 import ctypes
 import os
 
@@ -20,6 +21,7 @@ class VideoThread(QThread):
         self.play_port = c_long(-1)  # 每个线程使用独立的播放端口
         self.preview_handle = -1  # 预览句柄
         self.stream_ready = False  # 流是否准备就绪
+        self.detector = PersonDetector()
         self.funcRealDataCallBack_V30 = REALDATACALLBACK(self.RealDataCallBack_V30)
         self.play_started.connect(self.handle_play)
         

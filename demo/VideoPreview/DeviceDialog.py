@@ -1,6 +1,8 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5 import QtWidgets
+
+
 class DeviceDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -22,6 +24,7 @@ class DeviceDialog(QtWidgets.QDialog):
         self.port_label = QtWidgets.QLabel('端口号:')
         self.port_input = QtWidgets.QSpinBox()
         self.port_input.setRange(1, 65535)  # 设置合理的端口号范围
+        self.port_input.setValue(8000)  # 设置一个默认值
         self.form_layout.addRow(self.port_label, self.port_input)
 
         self.username_label = QtWidgets.QLabel('用户名:')
@@ -40,6 +43,9 @@ class DeviceDialog(QtWidgets.QDialog):
         self.button_box = QtWidgets.QVBoxLayout()
         self.add_button = QtWidgets.QPushButton('添加')
         self.add_button.clicked.connect(self.accept)
+        # 默认禁用添加按钮
+        self.add_button.setEnabled(False)
+
         self.cancel_button = QtWidgets.QPushButton('取消')
         self.cancel_button.clicked.connect(self.reject)
         self.button_box.addWidget(self.add_button)
@@ -48,6 +54,25 @@ class DeviceDialog(QtWidgets.QDialog):
 
         # 设置对话框的主布局
         self.setLayout(self.layout)
+
+        # --- 新增：绑定信号以实时检查输入 ---
+        self.name_input.textChanged.connect(self.check_inputs)
+        self.address_input.textChanged.connect(self.check_inputs)
+        self.username_input.textChanged.connect(self.check_inputs)
+        self.password_input.textChanged.connect(self.check_inputs)
+        # 端口号通常有默认值，但为了统一逻辑也可以绑定
+        self.port_input.valueChanged.connect(self.check_inputs)
+
+    def check_inputs(self):
+        """检查所有必填项是否非空，控制按钮状态"""
+        name = self.name_input.text().strip()
+        address = self.address_input.text().strip()
+        username = self.username_input.text().strip()
+        password = self.password_input.text().strip()
+
+        # 只有当所有字段都有值时，按钮才可用
+        is_valid = all([name, address, username, password])
+        self.add_button.setEnabled(is_valid)
 
     def get_device_info(self):
         # 如果用户点击了“添加”按钮，则返回设备信息
@@ -59,7 +84,6 @@ class DeviceDialog(QtWidgets.QDialog):
                 'username': self.username_input.text(),
                 'password': self.password_input.text()
             }
-            # 如果用户点击了“取消”按钮或关闭了对话框，则返回None
         return None
 
     def show_device_info(self, info: dict):
@@ -80,5 +104,3 @@ class DeviceDialog(QtWidgets.QDialog):
 
         self.add_button.hide()
         self.cancel_button.setText("关闭")
-
-
