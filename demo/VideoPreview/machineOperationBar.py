@@ -11,7 +11,7 @@ class OperationBar(QtWidgets.QWidget):
         self.device_controller = None
         self.current_user_id = -1
         self.current_channel = 1
-        self.ptz_speed = 1  # 默认云台速度
+        self.ptz_speed = 3  # 默认云台速度
         
         # 长按控制相关
         self.long_press_timer = QtCore.QTimer()
@@ -345,7 +345,7 @@ class OperationBar(QtWidgets.QWidget):
         if title is not None:
             btn.setText(title)
         if tip is not None:
-            btn.setToolTip(tip + " (单击短移动，长按持续移动)")
+            btn.setToolTip(tip + " (单击移动一小段距离，长按持续移动)")
         
         # 设置按钮的动作标识
         if action is not None:

@@ -1,5 +1,5 @@
 # coding=utf-8
-
+import ctypes
 import os
 from ctypes import *
 
@@ -36,6 +36,15 @@ class FRAME_INFO(Structure):
         ('dwFrameNum', C_DWORD)
     ]
 
+DECCALLBACK = ctypes.CFUNCTYPE(
+    None,
+    ctypes.c_long,        # nPort
+    ctypes.c_void_p,      # pBuf
+    ctypes.c_long,        # nSize
+    ctypes.POINTER(FRAME_INFO),  # pFrameInfo
+    ctypes.c_long,        # nUser
+    ctypes.c_long         # nReserved
+)
 
 LPFRAME_INFO = POINTER(FRAME_INFO)
 

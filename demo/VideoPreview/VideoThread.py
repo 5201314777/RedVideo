@@ -1,14 +1,16 @@
+import cv2
+import numpy as np
 from PyQt5.QtCore import QThread
-from _ctypes import byref
 
 from demo.HikSDK.HCNetSDK import *
 from PyQt5.QtCore import pyqtSignal
 from demo.HikSDK.PlayCtrl import *
 from demo.VideoPreview.ErrorHandler import HikErrorHandler
-from demo.VideoPreview.person_detector import PersonDetector
+from demo.ai.person_detector import PersonDetector
+from demo.utils.ImgTool import yv12_to_bgr
 import ctypes
 import os
-
+T_YV12 = 3
 class VideoThread(QThread):
     play_started = pyqtSignal(object)
     play_ready = pyqtSignal(bool)  # 信号：视频流准备就绪
@@ -23,6 +25,7 @@ class VideoThread(QThread):
         self.stream_ready = False  # 流是否准备就绪
         self.detector = PersonDetector()
         self.funcRealDataCallBack_V30 = REALDATACALLBACK(self.RealDataCallBack_V30)
+        self.funcDecCallBack = DECCALLBACK(self.DecCallBack)
         self.play_started.connect(self.handle_play)
         
         # 停止之前的预览
@@ -98,7 +101,6 @@ class VideoThread(QThread):
             # 保存预览句柄到窗口属性
             self.video_widget.setProperty('preview_handle', self.preview_handle)
             print(f"预览句柄: {self.preview_handle}")
-            
             # 等待线程结束
             self.exec_()
             
@@ -200,10 +202,33 @@ class VideoThread(QThread):
             print(error_msg)
             return False
 
+    def DecCallBack(self, nPort, pBuf, nSize, pFrameInfo, nUser, nReserved):
+        try:
+            print("DecCallBack called")
+
+            frame_info = pFrameInfo.contents
+            print("frame type:", frame_info.nType)
+
+            if frame_info.nType != T_YV12:
+                return
+
+            frame = yv12_to_bgr(pBuf, frame_info)
+            print("frame shape:", frame.shape)
+
+            boxes = self.detector.detect(frame)
+            print("person count:", len(boxes))
+
+            self.boxes_signal.emit(boxes)
+
+        except Exception as e:
+            # 先别吞，调试阶段一定要看
+            print("DecCallBack error:", e)
+
     def RealDataCallBack_V30(self, lPlayHandle, dwDataType, pBuffer, dwBufSize, pUser):
         """实时数据回调函数"""
         if dwDataType == NET_DVR_SYSHEAD:
             print(f"收到系统头数据，播放端口: {self.play_port.value}")
+
             if not self.device_controller.playctrldll.PlayM4_OpenStream(
                     self.play_port,
                     pBuffer,
@@ -215,8 +240,17 @@ class VideoThread(QThread):
                 print(f"PlayM4_OpenStream 失败，错误码: {error_code}")
                 return
 
+            self.device_controller.playctrldll.PlayM4_SetDecCallBackEx(
+                self.play_port,
+                self.funcDecCallBack,
+                None
+            )
+
+            # 播放（内部会触发 PlayM4_Play）
             self.play_started.emit(self.video_widget)
             print(f"窗口绑定成功，播放端口: {self.play_port.value}")
+
+
 
         elif dwDataType == NET_DVR_STREAMDATA:
             self.device_controller.playctrldll.PlayM4_InputData(
