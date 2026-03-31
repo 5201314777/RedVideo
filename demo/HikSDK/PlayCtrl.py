@@ -35,7 +35,22 @@ class FRAME_INFO(Structure):
         ('nFrameRate', c_long),
         ('dwFrameNum', C_DWORD)
     ]
+class NET_DVR_VIDEOEFFECT(Structure):
+    _fields_ = [
+        ("dwBrightValue", c_uint32),
+        ("dwContrastValue", c_uint32),
+        ("dwSaturationValue", c_uint32),
+        ("dwHueValue", c_uint32),
+        ("dwSharpness", c_uint32),
+        ("dwDenoising", c_uint32),
+    ]
 
+class NET_DVR_VIDEO_INPUT_EFFECT(Structure):
+    _fields_ = [
+        ("struVideoEffect", NET_DVR_VIDEOEFFECT),
+        ("wEffectMode", c_uint16),
+        ("byRes", c_byte * 62)
+    ]
 DECCALLBACK = ctypes.CFUNCTYPE(
     None,
     ctypes.c_long,        # nPort

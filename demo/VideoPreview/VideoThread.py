@@ -204,25 +204,26 @@ class VideoThread(QThread):
 
     def DecCallBack(self, nPort, pBuf, nSize, pFrameInfo, nUser, nReserved):
         try:
-            print("DecCallBack called")
+            #print("DecCallBack called")
 
             frame_info = pFrameInfo.contents
-            print("frame type:", frame_info.nType)
+            #print("frame type:", frame_info.nType)
 
             if frame_info.nType != T_YV12:
                 return
 
             frame = yv12_to_bgr(pBuf, frame_info)
-            print("frame shape:", frame.shape)
+            #print("frame shape:", frame.shape)
 
             boxes = self.detector.detect(frame)
-            print("person count:", len(boxes))
+            #print("person count:", len(boxes))
 
             self.boxes_signal.emit(boxes)
 
         except Exception as e:
             # 先别吞，调试阶段一定要看
-            print("DecCallBack error:", e)
+            #print("DecCallBack error:", e)
+            pass
 
     def RealDataCallBack_V30(self, lPlayHandle, dwDataType, pBuffer, dwBufSize, pUser):
         """实时数据回调函数"""
