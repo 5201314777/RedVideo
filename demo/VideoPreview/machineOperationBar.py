@@ -37,8 +37,7 @@ class OperationBar(QtWidgets.QWidget):
         self.current_channel = channel
         print(f"云台控制面板设置设备: 用户ID={user_id}, 通道={channel}")
         
-        # 设备连接后，自动应用当前参数
-        QtCore.QTimer.singleShot(1000, self.apply_all_params_to_device)  # 延迟1秒应用参数
+        # 不再自动应用参数，用户需要手动点击应用按钮
 
     def initUI(self):
         toolbarLayout = QtWidgets.QVBoxLayout()
@@ -478,7 +477,7 @@ class OperationBar(QtWidgets.QWidget):
         pass
 
     def on_param_changed(self, param, value):
-        """处理参数改变的槽函数"""
+        """处理参数改变的槽函数 - 只更新显示，不立即应用"""
         print(f"{param} 参数改变为: {value}")
         
         # 更新数值显示
@@ -488,11 +487,8 @@ class OperationBar(QtWidgets.QWidget):
         # 更新内部参数值
         self.params[param] = value
         
-        # 如果设备已连接，立即应用参数
-        if self.device_controller and self.current_user_id != -1:
-            self.apply_param_to_device(param, value)
-        else:
-            print("设备未连接，参数将在连接后应用")
+        # 不再立即应用参数，等待点击应用按钮
+        print(f"{param} 参数已更新为 {value}%，点击应用按钮后生效")
     
     def apply_param_to_device(self, param, value):
         """将参数应用到设备"""
@@ -749,15 +745,65 @@ class OperationBar(QtWidgets.QWidget):
     
     def apply_all_params_to_device(self):
         """将所有参数应用到设备"""
-        if self.device_controller and self.current_user_id != -1:
-            print("应用所有参数到设备...")
-            for param, value in self.params.items():
-                self.apply_param_to_device(param, value)
+        if not self.device_controller:
+            print("设备控制器未设置，无法应用参数")
+            return
+            
+        # 获取当前选中窗口的预览句柄
+        preview_handle = self.get_current_preview_handle()
+        if preview_handle == -1:
+            print("无法获取预览句柄，参数应用失败")
+            return
+            
+        print("应用所有参数到设备...")
+        
+        # 一次性获取所有参数值
+        brightness = self.params.get("亮度", 50)
+        contrast = self.params.get("对比度", 50)
+        saturation = self.params.get("饱和度", 50)
+        hue = self.params.get("色度", 50)
+        
+        # 将UI值(0-100)映射到SDK值(1-10)
+        brightness_sdk = int(1 + (brightness * 9 / 100))
+        contrast_sdk = int(1 + (contrast * 9 / 100))
+        saturation_sdk = int(1 + (saturation * 9 / 100))
+        hue_sdk = int(1 + (hue * 9 / 100))
+        
+        # 确保在有效范围内
+        brightness_sdk = max(1, min(10, brightness_sdk))
+        contrast_sdk = max(1, min(10, contrast_sdk))
+        saturation_sdk = max(1, min(10, saturation_sdk))
+        hue_sdk = max(1, min(10, hue_sdk))
+        
+        print(f"应用参数: 亮度={brightness_sdk}, 对比度={contrast_sdk}, 饱和度={saturation_sdk}, 色度={hue_sdk}")
+        
+        # 一次性调用SDK设置所有参数
+        result = self.device_controller.Objdll.NET_DVR_ClientSetVideoEffect(
+            preview_handle,
+            brightness_sdk,
+            contrast_sdk,
+            saturation_sdk,
+            hue_sdk
+        )
+        
+        if result:
+            success_msg = HikErrorHandler.format_error_info(
+                0,
+                "应用视频参数",
+                f"亮度:{brightness}%, 对比度:{contrast}%, 饱和度:{saturation}%, 色度:{hue}%"
+            )
+            print(success_msg)
         else:
-            print("设备未连接，无法应用参数")
+            error_code = self.device_controller.Objdll.NET_DVR_GetLastError()
+            error_msg = HikErrorHandler.format_error_info(
+                error_code,
+                "应用视频参数",
+                f"预览句柄: {preview_handle}"
+            )
+            print(error_msg)
     
     def reset_all_params(self):
-        """重置所有参数到默认值"""
+        """重置所有参数到默认值 - 仅更新UI，不立即应用"""
         default_values = {
             "亮度": 50,
             "对比度": 50,
@@ -770,10 +816,15 @@ class OperationBar(QtWidgets.QWidget):
         
         for param, value in default_values.items():
             if param in self.param_sliders:
-                # 更新滑块值（这会触发valueChanged信号）
+                # 阻止信号避免触发设置
+                self.param_sliders[param]['slider'].blockSignals(True)
                 self.param_sliders[param]['slider'].setValue(value)
+                self.param_sliders[param]['label'].setText(str(value))
+                self.param_sliders[param]['slider'].blockSignals(False)
+                # 更新内部参数值
+                self.params[param] = value
         
-        print("所有参数已重置为默认值")
+        print("所有参数已重置为默认值，点击应用按钮后生效")
     
     def emergency_restore_video(self):
         """紧急恢复视频显示 - 重置所有视频效果参数"""
