@@ -1067,3 +1067,103 @@ MSGCallBack_V31 = fun_ctype(c_bool, C_LONG, LPNET_DVR_ALARMER, c_void_p, C_DWORD
 
 # 码流回调函数
 REALDATACALLBACK = fun_ctype(None, C_LONG, C_DWORD, POINTER(C_BYTE), C_DWORD, c_void_p)
+
+# 定义NET_DVR_STDXMLConfig函数的回调类型
+XMLConfigCallBack = fun_ctype(None, C_LONG, C_DWORD, c_char_p, C_DWORD, c_void_p)
+
+# 定义XML配置输入结构体
+class NET_DVR_XML_CONFIG_INPUT(Structure):
+    _fields_ = [
+        ('dwSize', C_DWORD),
+        ('lpRequestUrl', c_char_p),
+        ('lpInBuffer', c_char_p),
+        ('dwInBufferSize', C_DWORD),
+        ('byRes', c_char * 128)
+    ]
+
+# 定义XML配置输出结构体
+class NET_DVR_XML_CONFIG_OUTPUT(Structure):
+    _fields_ = [
+        ('dwSize', C_DWORD),
+        ('lpOutBuffer', c_char_p),
+        ('dwOutBufferSize', C_DWORD),
+        ('dwReturnedSize', C_DWORD),
+        ('byRes', c_char * 128)
+    ]
+
+# 定义NET_DVR_STDXMLConfig函数
+NET_DVR_STDXMLConfig = fun_ctype(
+    C_BOOL,
+    C_LONG,                           # lUserID
+    POINTER(NET_DVR_XML_CONFIG_INPUT),  # lpInputParam
+    POINTER(NET_DVR_XML_CONFIG_OUTPUT)  # lpOutputParam
+)
+
+# 定义BYTE_ARRAY结构体
+class BYTE_ARRAY(Structure):
+    _fields_ = [('byValue', c_byte * 2097152)]
+
+# 定义NET_DVR_JPEGPICTURE_WITH_APPENDDATA结构体
+class NET_DVR_JPEGPICTURE_WITH_APPENDDATA(Structure):
+    _fields_ = [
+        ('dwSize', C_DWORD),
+        ('dwChannel', C_DWORD),
+        ('dwJpegPicLen', C_DWORD),
+        ('pJpegPicBuff', POINTER(BYTE_ARRAY)),
+        ('dwJpegPicWidth', C_DWORD),
+        ('dwJpegPicHeight', C_DWORD),
+        ('dwP2PDataLen', C_DWORD),
+        ('pP2PDataBuff', POINTER(BYTE_ARRAY)),
+        ('byIsFreezedata', c_byte),
+        ('byRes', c_byte * 255)
+    ]
+
+# 定义NET_DVR_JPEGPARA结构体
+class NET_DVR_JPEGPARA(Structure):
+    _fields_ = [
+        ('wPicSize', C_DWORD),
+        ('wPicQuality', C_DWORD)
+    ]
+
+# 定义NET_DVR_CaptureJPEGPicture_WithAppendData函数
+NET_DVR_CaptureJPEGPicture_WithAppendData = fun_ctype(
+    C_BOOL,
+    C_LONG,                           # lUserID
+    C_LONG,                           # lChannel
+    POINTER(NET_DVR_JPEGPICTURE_WITH_APPENDDATA)  # lpJpegWithAppend
+)
+
+# 热成像相关常量
+# 测温模式
+THERMOMETRY_MODE_NORMAL = 0  # 普通模式
+THERMOMETRY_MODE_EXPERT = 1  # 专家模式
+
+# 温度单位
+TEMP_UNIT_CELSIUS = 0  # 摄氏度
+TEMP_UNIT_FAHRENHEIT = 1  # 华氏度
+
+# 测温类型
+TEMP_TYPE_HIGHEST = 0  # 最高温度
+TEMP_TYPE_LOWEST = 1  # 最低温度
+TEMP_TYPE_AVERAGE = 2  # 平均温度
+
+# 热成像数据类型
+NET_DVR_THERMAL_DATA = 113  # 热成像数据
+
+# 解码回调函数
+hk_analyzeDataCallBack = fun_ctype(None, C_LONG, C_DWORD, POINTER(C_BYTE), C_DWORD, c_void_p)
+
+# 定义热成像温度数据结构体
+class NET_DVR_THERMAL_DATA(Structure):
+    _fields_ = [
+        ('dwSize', C_DWORD),  # 结构体大小
+        ('dwChannel', C_DWORD),  # 通道号
+        ('dwThermometryMode', C_DWORD),  # 测温模式
+        ('dwTemperatureUnit', C_DWORD),  # 温度单位
+        ('fHighestTemp', c_float),  # 最高温度
+        ('fLowestTemp', c_float),  # 最低温度
+        ('fAverageTemp', c_float),  # 平均温度
+        ('byRes', C_BYTE * 100)  # 保留
+    ]
+
+LPNET_DVR_THERMAL_DATA = POINTER(NET_DVR_THERMAL_DATA)

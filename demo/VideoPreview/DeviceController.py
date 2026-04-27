@@ -14,15 +14,16 @@ class DeviceController:
         self.Objdll.NET_DVR_Init()
         print("SDK初始化成功")
         self.PlayCtrl_Port = c_long(-1)
+        try:
+            self.Objdll.NET_DVR_STDXMLConfig.argtypes = [C_LONG, POINTER(NET_DVR_XML_CONFIG_INPUT), POINTER(NET_DVR_XML_CONFIG_OUTPUT)]
+            self.Objdll.NET_DVR_STDXMLConfig.restype = C_BOOL
+            print("NET_DVR_STDXMLConfig函数映射成功")
+        except Exception as e:
+            print(f"NET_DVR_STDXMLConfig函数映射失败: {str(e)}")
 
 
     def device_connection_test(self, ip, port, username, password):
-        """
-        测试设备连接（仅验证，不保持登录）
-        :return: (bool, str) -> (是否成功, 详细信息)
-        """
         print(f"正在测试验证设备: {ip}:{port}")
-
         struLoginInfo = NET_DVR_USER_LOGIN_INFO()
         struLoginInfo.bUseAsynLogin = 0
         struLoginInfo.sDeviceAddress = bytes(ip, "ascii")
@@ -30,9 +31,7 @@ class DeviceController:
         struLoginInfo.sUserName = bytes(username, "ascii")
         struLoginInfo.sPassword = bytes(password, "ascii")
         struLoginInfo.byLoginMode = 0
-
         struDeviceInfoV40 = NET_DVR_DEVICEINFO_V40()
-
         # 尝试登录
         UserID = self.Objdll.NET_DVR_Login_V40(byref(struLoginInfo), byref(struDeviceInfoV40))
 
@@ -83,7 +82,6 @@ class DeviceController:
     def open_preview(self, UserID, callbackFun, channel_num=1):
         """打开预览"""
         print(f"正在开启预览 - 用户ID: {UserID}, 通道号: {channel_num}")
-        
         preview_info = NET_DVR_PREVIEWINFO()
         preview_info.hPlayWnd = 0  # 不直接使用窗口句柄，通过回调处理
         preview_info.lChannel = channel_num  # 使用传入的通道号
@@ -91,9 +89,9 @@ class DeviceController:
         preview_info.dwLinkMode = 0  # TCP方式
         preview_info.bBlocked = 1  # 阻塞取流
         preview_info.dwDisplayBufNum = 15  # 播放缓冲区最大帧数
-        
+
         lRealPlayHandle = self.Objdll.NET_DVR_RealPlay_V40(UserID, byref(preview_info), callbackFun, None)
-        
+
         if lRealPlayHandle == -1:
             error_code = self.Objdll.NET_DVR_GetLastError()
             error_msg = HikErrorHandler.format_error_info(
@@ -109,7 +107,7 @@ class DeviceController:
                 f"预览句柄: {lRealPlayHandle}"
             )
             print(success_msg)
-            
+
         return lRealPlayHandle
 
     def start_record(self, preview_handle, file_path):

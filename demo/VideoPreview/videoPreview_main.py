@@ -20,10 +20,6 @@ import ctypes
 
 
 class VideoPreview(QtWidgets.QMainWindow):
-    """
-    主窗口类，用于显示视频预览和设备树。
-    """
-
     def __init__(self):
         super(VideoPreview, self).__init__()
         self.pending_channel_data = None  # 暂存设备树传来的通道数据
@@ -50,6 +46,22 @@ class VideoPreview(QtWidgets.QMainWindow):
         # 连接信号
         self.device_tree.channelClicked.connect(self.handle_channel_click)
         self.video_view.windowSelected.connect(self.handle_window_selected)
+        
+        # 连接视频窗口信息更新信号
+        for widget in self.video_view.video_widgets:
+            widget.info_updated.connect(self.handle_window_info_updated)
+        
+        # 初始化热成像温度管理器
+        from demo.VideoPreview.thermal_temperature_manager import ThermalTemperatureManager, ThermalTemperatureDisplay
+        self.thermal_manager = ThermalTemperatureManager(self.device_controller)
+        self.thermal_display = ThermalTemperatureDisplay(self.thermal_manager)
+        
+        # 为每个视频窗口设置热成像温度显示
+        for i, widget in enumerate(self.video_view.video_widgets):
+            self.thermal_display.set_video_widget(i, widget)
+        
+        # 添加窗口关联菜单
+        self._add_window_association_menu()
 
         # 创建日志记录器
         self.logger = Logger()
@@ -132,6 +144,37 @@ class VideoPreview(QtWidgets.QMainWindow):
         # 如果有暂存的通道数据，将其存储到新选中的窗口
         if self.pending_channel_data is not None:
             self.store_channel_data()
+    
+    def handle_window_info_updated(self, window_index, info_dict):
+        """处理窗口信息更新"""
+        print(f"窗口 {window_index} 信息已更新:")
+        print(f"  温度阈值: {info_dict.get('temp_threshold')}°C")
+        print(f"  区域标识: {info_dict.get('area_identifier')}")
+        if info_dict.get('device_info'):
+            device_name = info_dict['device_info'].get('name', '未知设备')
+            device_ip = info_dict['device_info'].get('ip', '未知IP')
+            print(f"  设备: {device_name} ({device_ip})")
+    
+    def _add_window_association_menu(self):
+        """添加窗口关联菜单"""
+        # 获取菜单栏
+        menubar = self.menuBar()
+        
+        # 创建窗口菜单
+        window_menu = menubar.addMenu("窗口")
+        
+        # 创建关联子菜单
+        association_menu = window_menu.addMenu("窗口关联")
+        
+        # 为每个窗口创建关联选项
+        for i in range(len(self.video_view.video_widgets)):
+            for j in range(i + 1, len(self.video_view.video_widgets)):
+                action = association_menu.addAction(f"关联窗口 {i+1} 和窗口 {j+1}")
+                action.triggered.connect(lambda checked, idx1=i, idx2=j: self.associate_windows(idx1, idx2))
+    
+    def associate_windows(self, window_index1, window_index2):
+        """关联两个窗口"""
+        self.video_view.associate_windows(window_index1, window_index2)
 
     def store_channel_data(self):
         """将通道数据存储到选中的窗口"""
@@ -143,4 +186,15 @@ class VideoPreview(QtWidgets.QMainWindow):
         
         # 存储通道数据到窗口
         selected_window.setProperty('channel_data', self.pending_channel_data)
-        print(f"通道数据已存储到窗口 {self.selected_window_index}")
+    
+    def closeEvent(self, event):
+        """窗口关闭事件"""
+        print("主窗口关闭")
+        
+        # 清理热成像温度管理器资源
+        if hasattr(self, 'thermal_manager'):
+            self.thermal_manager.cleanup()
+        if hasattr(self, 'thermal_display'):
+            self.thermal_display.cleanup()
+            
+        event.accept()

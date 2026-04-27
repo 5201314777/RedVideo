@@ -162,3 +162,19 @@ class VideoView(QtWidgets.QWidget):
             widget.setProperty('user_id', None)
             widget.setProperty('preview_handle', None)
             widget.setProperty('channel_data', None)
+    
+    def associate_windows(self, window_index1, window_index2):
+        """关联两个窗口（用于正常图像和红外图像）"""
+        if 0 <= window_index1 < len(self.video_widgets) and 0 <= window_index2 < len(self.video_widgets):
+            widget1 = self.video_widgets[window_index1]
+            widget2 = self.video_widgets[window_index2]
+            
+            # 双向关联
+            widget1.set_associated_window(window_index2)
+            widget2.set_associated_window(window_index1)
+            
+            print(f"窗口 {window_index1} 和窗口 {window_index2} 已相互关联")
+            return True
+        else:
+            print("无效的窗口索引")
+            return False

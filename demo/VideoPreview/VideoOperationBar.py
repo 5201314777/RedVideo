@@ -30,9 +30,13 @@ class VideoOperationBar(QtWidgets.QToolBar):
         self.recording_windows = {}  # 记录正在录像的窗口
         
         # 创建录像和抓图的存储目录
-        self.record_dir = r".\Test\Videos"  # 根据开发文档指定的路径
-        self.capture_dir = r".\Test\Images"  # 根据开发文档指定的路径
+        BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+        self.capture_dir = os.path.join(BASE_DIR, "Test", "Images")
+        self.record_dir = os.path.join(BASE_DIR, "Test", "Videos")
         self._ensure_directories()
+        print("BASE_DIR:", BASE_DIR)
+        print("capture_dir:", self.capture_dir)
         
         action = functools.partial(newAction, self)
         # 创建一个QWidgetAction来包含窗口数选择的组合框
@@ -152,12 +156,29 @@ class VideoOperationBar(QtWidgets.QToolBar):
                 if user_id == -1:
                     return False, "设备登录失败"
                 selected_window.setProperty('user_id', user_id)
+            
+            # 设置设备信息到窗口
+            if hasattr(selected_window, 'set_device_info'):
+                device_info = {
+                    'name': channel_data.get('name', '未知设备'),
+                    'ip': channel_data['ip'],
+                    'port': channel_data['port'],
+                    'username': channel_data['username']
+                }
+                selected_window.set_device_info(device_info)
+                print(f"窗口 {index} 设备信息已设置: {device_info['name']} ({device_info['ip']})")
 
             # 4. 创建并启动线程
             # 如果提供了 target_label (比如大窗口的Label)，就渲染到那；否则渲染到原窗口
             render_target = target_label if target_label else selected_window
 
-            t = VideoThread(self.device_controller, render_target)
+            # 检查是否有热成像温度管理器
+            thermal_manager = None
+            main_window = self.window()
+            if main_window and hasattr(main_window, 'thermal_manager'):
+                thermal_manager = main_window.thermal_manager
+
+            t = VideoThread(self.device_controller, render_target, thermal_manager=thermal_manager, window_index=index)
             self.video_threads[index] = t
             # 如果 VideoThread 内部没写 self.start()，记得在这里补上 t.start()
 

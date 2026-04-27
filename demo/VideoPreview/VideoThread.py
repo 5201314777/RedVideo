@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from PyQt5 import QtCore
 from PyQt5.QtCore import QThread
 
 from demo.HikSDK.HCNetSDK import *
@@ -8,6 +9,7 @@ from demo.HikSDK.PlayCtrl import *
 from demo.VideoPreview.ErrorHandler import HikErrorHandler
 from demo.ai.person_detector import PersonDetector
 from demo.utils.ImgTool import yv12_to_bgr
+from demo.VideoPreview.thermal_temperature_manager import ThermalTemperatureManager
 import ctypes
 import os
 T_YV12 = 3
@@ -15,10 +17,12 @@ class VideoThread(QThread):
     play_started = pyqtSignal(object)
     play_ready = pyqtSignal(bool)  # 信号：视频流准备就绪
 
-    def __init__(self, device_controller, video_widget):
+    def __init__(self, device_controller, video_widget, thermal_manager=None, window_index=-1):
         super().__init__(parent=None)
         self.device_controller = device_controller
         self.video_widget = video_widget
+        self.thermal_manager = thermal_manager
+        self.window_index = window_index
         self.channel_num = 1  # 默认通道号
         self.play_port = c_long(-1)  # 每个线程使用独立的播放端口
         self.preview_handle = -1  # 预览句柄
@@ -27,6 +31,9 @@ class VideoThread(QThread):
         self.funcRealDataCallBack_V30 = REALDATACALLBACK(self.RealDataCallBack_V30)
         self.funcDecCallBack = DECCALLBACK(self.DecCallBack)
         self.play_started.connect(self.handle_play)
+        
+        # 定时获取温度
+        self.temperature_timer = None
         
         # 停止之前的预览
         self.stop_previous_preview()
@@ -86,6 +93,22 @@ class VideoThread(QThread):
                 
             print(f"开始预览 - 用户ID: {user_id}, 通道号: {self.channel_num}")
             
+            # 检查设备是否支持热成像功能
+            if self.thermal_manager:
+                print("检查设备热成像能力...")
+                # 尝试使用NET_DVR_CaptureJPEGPicture_WithAppendData获取温度数据
+                print("尝试使用NET_DVR_CaptureJPEGPicture_WithAppendData获取温度数据...")
+                temperature_info = self.thermal_manager.get_temperature_with_append_data(user_id, self.channel_num)
+                if temperature_info:
+                    print("设备支持热成像功能，获取温度数据成功")
+                    # 保存温度数据
+                    if self.window_index != -1:
+                        self.thermal_manager.temperature_data[self.window_index] = temperature_info
+                        # 发送温度更新信号
+                        self.thermal_manager.temperature_updated.emit(self.window_index, temperature_info)
+                else:
+                    print("设备不支持热成像功能或获取温度数据失败")
+            
             # 打开预览
             self.preview_handle = self.device_controller.open_preview(user_id, self.funcRealDataCallBack_V30, self.channel_num)
             if self.preview_handle == -1:
@@ -101,6 +124,18 @@ class VideoThread(QThread):
             # 保存预览句柄到窗口属性
             self.video_widget.setProperty('preview_handle', self.preview_handle)
             print(f"预览句柄: {self.preview_handle}")
+            
+            # 保存用户ID到实例变量
+            self.user_id = user_id
+            
+            # 启动热成像数据监控
+            if self.thermal_manager and self.window_index != -1:
+                self.thermal_manager.start_thermal_monitoring(self.window_index, self.preview_handle)
+                # 启动定时获取温度
+                self.temperature_timer = QtCore.QTimer()
+                self.temperature_timer.timeout.connect(self.get_temperature_periodically)
+                self.temperature_timer.start(1000)  # 每1秒获取一次温度
+            
             # 等待线程结束
             self.exec_()
             
@@ -113,8 +148,16 @@ class VideoThread(QThread):
     def handle_play(self, view):
         """处理播放开始事件"""
         try:
-            hwnd = int(view.winId())
-            print(f"绑定窗口句柄: {hwnd}, 播放端口: {self.play_port.value}")
+            # 尝试获取view内部的widget句柄（如果存在）
+            if hasattr(view, 'widget'):
+                # 使用内部widget作为视频显示区域
+                video_widget = view.widget
+                hwnd = int(video_widget.winId())
+                print(f"绑定视频显示区域句柄: {hwnd}, 播放端口: {self.play_port.value}")
+            else:
+                # 否则使用整个view的句柄
+                hwnd = int(view.winId())
+                print(f"绑定窗口句柄: {hwnd}, 播放端口: {self.play_port.value}")
             
             if self.device_controller.playctrldll.PlayM4_Play(
                 self.play_port,
@@ -225,6 +268,26 @@ class VideoThread(QThread):
             #print("DecCallBack error:", e)
             pass
 
+    def get_temperature_periodically(self):
+        """
+        定时获取温度数据
+        """
+        if self.thermal_manager and hasattr(self, 'user_id') and self.user_id != -1:
+            print("定时获取温度数据...")
+            temperature_info = self.thermal_manager.get_temperature_with_append_data(self.user_id, self.channel_num)
+            if temperature_info:
+                highest_temp = temperature_info.get('highest', None)
+                lowest_temp = temperature_info.get('lowest', None)
+                average_temp = temperature_info.get('average', None)
+                print(f"获取温度数据成功: 最高={highest_temp:.2f}°C, 最低={lowest_temp:.2f}°C, 平均={average_temp:.2f}°C")
+                # 保存温度数据
+                if self.window_index != -1:
+                    self.thermal_manager.temperature_data[self.window_index] = temperature_info
+                    # 发送温度更新信号
+                    self.thermal_manager.temperature_updated.emit(self.window_index, temperature_info)
+            else:
+                print("获取温度数据失败")
+    
     def RealDataCallBack_V30(self, lPlayHandle, dwDataType, pBuffer, dwBufSize, pUser):
         """实时数据回调函数"""
         if dwDataType == NET_DVR_SYSHEAD:
@@ -259,4 +322,10 @@ class VideoThread(QThread):
                 pBuffer,
                 dwBufSize
             )
+        
+        elif dwDataType == NET_DVR_THERMAL_DATA:
+            # 处理热成像数据
+            print(f"收到热成像数据，大小: {dwBufSize}")
+            if self.thermal_manager and self.window_index != -1:
+                self.thermal_manager.process_thermal_data(self.window_index, dwDataType, pBuffer, dwBufSize)
 
